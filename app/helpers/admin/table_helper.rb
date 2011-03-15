@@ -13,24 +13,28 @@ module Admin
 
     def table_header(model, fields, params = params)
       fields.map do |key, value|
-
         key = key.gsub(".", " ") if key.to_s.match(/\./)
         content = model.human_attribute_name(key)
-
         if params[:action].eql?('index') && model.typus_options_for(:sortable)
-          association = model.reflect_on_association(key.to_sym)
-          order_by = association ? association.primary_key_name : key
-
-          if (model.model_fields.map(&:first).map { |i| i.to_s }.include?(key) || model.reflect_on_all_associations(:belongs_to).map(&:name).include?(key.to_sym))
+          assoc = model.reflect_on_association(key.to_sym)
+          order_by = assoc ? assoc.primary_key_name : key
+		  is_field = model.model_fields.map(&:first).map { |i| i.to_s }.include?(key)
+		  is_belongs_to_assoc = model.reflect_on_all_associations(:belongs_to).reject { |i| i.options[:polymorphic] }.map(&:name).include?(key.to_sym)
+		  is_has_one_assoc = model.reflect_on_all_associations(:has_one).reject { |i| i.options[:polymorphic] }.map(&:name).include?(key.to_sym)
+          if is_field || is_belongs_to_assoc || is_has_one_assoc 
             sort_order = case params[:sort_order]
                          when 'asc' then ['desc', '&darr;']
                          when 'desc' then ['asc', '&uarr;']
                          else [nil, nil]
                          end
-            switch = sort_order.last if params[:order_by].eql?(order_by)
-            options = { :order_by => order_by, :sort_order => sort_order.first }
-            message = [content, switch].compact.join(" ").html_safe
-            link_to message, params.merge(options)
+            switch = sort_order.last if (params[:order_by].eql?(order_by) || params[:order_by] && params[:order_by].include?(key + "."))
+			if (is_belongs_to_assoc || is_has_one_assoc)
+			  options = { :order_by => ("#{key}.name"), :sort_order => sort_order.first }
+			else 
+              options = { :order_by => order_by, :sort_order => sort_order.first }
+			end
+		   message = [content, switch].compact.join(" ").html_safe
+           link_to message, params.merge(options)
           else
             content
           end
@@ -73,6 +77,8 @@ module Admin
       end
     end
 
+	alias :table_has_one_field :table_belongs_to_field
+
     def table_has_and_belongs_to_many_field(attribute, item)
       item.send(attribute).map { |i| i.to_label }.join(", ")
     end
@@ -80,7 +86,7 @@ module Admin
     alias :table_has_many_field :table_has_and_belongs_to_many_field
 
     def table_text_field(attribute, item)
-      (raw_content = item.send(attribute)).present? ? truncate(raw_content) : "&mdash;".html_safe
+      (raw_content = item.send(attribute)).present? ? strip_tags(raw_content) : "&mdash;".html_safe
     end
 
     def table_generic_field(attribute, item)

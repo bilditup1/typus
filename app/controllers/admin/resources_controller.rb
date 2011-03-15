@@ -216,18 +216,20 @@ class Admin::ResourcesController < Admin::BaseController
   def get_object
     @item = @resource.find(params[:id])
   end
-
+  
   def get_objects
     eager_loading = @resource.reflect_on_all_associations(:belongs_to).reject { |i| i.options[:polymorphic] }.map { |i| i.name }
+	# added support for has_one associations. Why should they be left out in the cold?
+	@resource.reflect_on_all_associations(:has_one).each do |has_one_assoc|
+	  eager_loading.push has_one_assoc.name.to_sym
+	end
 
     @resource.build_conditions(params).each do |condition|
       @resource = @resource.where(condition)
     end
-
-    @resource.build_joins(params).each do |join|
+    @resource.build_joins(params).each_with_index do |join, index|
       @resource = @resource.joins(join)
     end
-
     if @resource.typus_options_for(:only_user_items)
       check_resources_ownership
     end
@@ -241,8 +243,30 @@ class Admin::ResourcesController < Admin::BaseController
   helper_method :fields
 
   def set_order
+	# modified to detect belongs_to associations, in which table_name is passed in params[:order_by]
+	# properly detects sti so you don't have to specify the name of the join table
+	# --(corrects parameter to table join name of PLURAL_FOREIGN_TABLE_NAME.PLURAL_RESOURCE_NAME)
+	# see app/helpers/admin/table_helper.rb#table_header for how this is constructed.
+	# similar modifications done in lib/typus/orm/active_record/class_methods.rb#typus_order_by
+	
     params[:sort_order] ||= "desc"
-    params[:order_by] ? "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}" : @resource.typus_order_by
+	if params[:order_by]
+	  if params[:order_by].to_s.include? "."
+		order_by_array = params[:order_by].to_s.split(".")
+		assoc = @resource.reflect_on_association(order_by_array[0].to_sym)
+		unless assoc.klass.descends_from_active_record? # STI check
+	      "#{order_by_array[0].pluralize}_#{@resource.table_name}.#{order_by_array[1]} #{params[:sort_order]}"
+		else
+		  "#{order_by_array[0].pluralize}.#{order_by_array[1]} #{params[:sort_order]}"
+		end
+	  else 
+	    "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}"
+	  end
+	else
+	  @resource.typus_order_by
+	end
+	# the old way, for posterity. We do loose some simplicity here.
+    # params[:order_by] ? "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}" : @resource.typus_order_by
   end
 
   def redirect_on_success

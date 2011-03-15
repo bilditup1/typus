@@ -85,7 +85,18 @@ module Typus
 
       def typus_order_by
         typus_defaults_for(:order_by).map do |field|
-          field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
+		  if field.to_s.include? "."
+		    order_by_array = field.to_s.split(".")
+		    assoc = self.reflect_on_association(order_by_array[0].to_sym)
+		    unless assoc.klass.descends_from_active_record?
+		      field = "#{order_by_array[0].pluralize}_#{table_name}.#{order_by_array[1]}" 
+		    else
+		      field = "#{order_by_array[0].pluralize}.#{order_by_array[1]}" 
+		    end
+	        field.include?('-') ? "#{field.delete('-')} DESC" : "#{field} ASC"
+		  else
+            field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
+	      end
         end.join(', ')
       end
 

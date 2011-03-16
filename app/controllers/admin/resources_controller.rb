@@ -218,12 +218,7 @@ class Admin::ResourcesController < Admin::BaseController
   end
   
   def get_objects
-    eager_loading = @resource.reflect_on_all_associations(:belongs_to).reject { |i| i.options[:polymorphic] }.map { |i| i.name }
-	# added support for has_one associations. Why should they be left out in the cold?
-	@resource.reflect_on_all_associations(:has_one).each do |has_one_assoc|
-	  eager_loading.push has_one_assoc.name.to_sym
-	end
-
+    eager_loading = @resource.has_one_belongs_to_assocs
     @resource.build_conditions(params).each do |condition|
       @resource = @resource.where(condition)
     end
@@ -233,8 +228,8 @@ class Admin::ResourcesController < Admin::BaseController
     if @resource.typus_options_for(:only_user_items)
       check_resources_ownership
     end
-
-    @resource = @resource.order(set_order).includes(eager_loading)
+    @resource = @resource.order(set_order(eager_loading)).includes(eager_loading)
+	
   end
 
   def fields
@@ -242,30 +237,33 @@ class Admin::ResourcesController < Admin::BaseController
   end
   helper_method :fields
 
-  def set_order
+  def set_order(assocs)
 	# modified to detect belongs_to associations, in which table_name is passed in params[:order_by]
 	# properly detects sti so you don't have to specify the name of the join table
-	# --(corrects parameter to table join name of PLURAL_FOREIGN_TABLE_NAME.PLURAL_RESOURCE_NAME)
-	# see app/helpers/admin/table_helper.rb#table_header for how this is constructed.
+	# see app/helpers/admin/table_helper.rb#table_header
 	# similar modifications done in lib/typus/orm/active_record/class_methods.rb#typus_order_by
-	
     params[:sort_order] ||= "desc"
 	if params[:order_by]
-	  if params[:order_by].to_s.include? "."
+	  if params[:order_by].to_s.include? "." # foreign attrib specified (relationship assumed)
 		order_by_array = params[:order_by].to_s.split(".")
-		assoc = @resource.reflect_on_association(order_by_array[0].to_sym)
-		unless assoc.klass.descends_from_active_record? # STI check
+		unless @resource.reflect_on_association(order_by_array[0].to_sym).klass.descends_from_active_record? # STI check
 	      "#{order_by_array[0].pluralize}_#{@resource.table_name}.#{order_by_array[1]} #{params[:sort_order]}"
 		else
 		  "#{order_by_array[0].pluralize}.#{order_by_array[1]} #{params[:sort_order]}"
 		end
-	  else 
+	  elsif assocs.include?(params[:order_by].to_sym) # no attrib specified (can be normal field or related field)
+	    unless @resource.reflect_on_association(params[:order_by].to_sym).klass.descends_from_active_record? # STI check
+	      "#{params[:order_by].pluralize}_#{@resource.table_name}.name #{params[:sort_order]}"	
+		else
+		  "#{params[:order_by].pluralize}.name #{params[:sort_order]}"
+		end		
+	  else # regular attribute
 	    "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}"
 	  end
-	else
+	else # no parameters at all
 	  @resource.typus_order_by
 	end
-	# the old way, for posterity. We do loose some simplicity here.
+	# the old way, for posterity. We do lose some simplicity here.
     # params[:order_by] ? "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}" : @resource.typus_order_by
   end
 

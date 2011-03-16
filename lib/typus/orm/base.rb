@@ -85,21 +85,34 @@ module Typus
 
       def typus_order_by
         typus_defaults_for(:order_by).map do |field|
-		  if field.to_s.include? "."
-		    order_by_array = field.to_s.split(".")
-		    assoc = self.reflect_on_association(order_by_array[0].to_sym)
-		    unless assoc.klass.descends_from_active_record?
-		      field = "#{order_by_array[0].pluralize}_#{table_name}.#{order_by_array[1]}" 
+		  if field.to_s.include? (".") # foreign attrib specified (relationship assumed)
+		    f = field.to_s.split (".")
+		    unless self.reflect_on_association(f[0].to_sym).klass.descends_from_active_record?
+		      field = "#{f[0].pluralize}_#{table_name}.#{f[1]}" 
 		    else
-		      field = "#{order_by_array[0].pluralize}.#{order_by_array[1]}" 
+		      field = "#{f[0].pluralize}.#{f[1]}" 
 		    end
-	        field.include?('-') ? "#{field.delete('-')} DESC" : "#{field} ASC"
-		  else
-            field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
-	      end
+	        field.include? '-' ? "#{field.delete('-')} DESC" : "#{field} ASC"
+		  else # no attrib specified (can be normal field or related field)
+		    f = field.split('-')[0].to_sym
+		    if has_one_belongs_to_assocs.include?(f) # check for related field
+		      unless self.reflect_on_association(f).klass.descends_from_active_record? # check for STI
+			    field = "#{field.pluralize}_#{table_name}.name"
+			  else
+			    field = "#{field.pluralize}.name"
+			  end
+	          field.include?('-') ? "#{field.delete('-')} DESC" : "#{field} ASC"
+		    else
+              field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
+	        end
+		  end
         end.join(', ')
       end
-
+	  
+	def has_one_belongs_to_assocs
+	  assocs = self.reflect_on_all_associations(:belongs_to).reject { |i| i.options[:polymorphic] }.map { |i| i.name }
+	  assocs.concat(self.reflect_on_all_associations(:has_one).reject { |i| i.options[:polymorphic] }.map { |i| i.name })
+	end
       #--
       # Define our own boolean mappings.
       #

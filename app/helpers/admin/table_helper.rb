@@ -86,7 +86,7 @@ module Admin
     alias :table_has_many_field :table_has_and_belongs_to_many_field
 
     def table_text_field(attribute, item)
-      (raw_content = item.send(attribute)).present? ? strip_tags(raw_content) : "&mdash;".html_safe
+      (raw_content = item.send(attribute)).present? ? strip_tags(truncate(raw_content)) : "&mdash;".html_safe
     end
 
     def table_generic_field(attribute, item)

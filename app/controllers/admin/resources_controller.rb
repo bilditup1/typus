@@ -229,7 +229,6 @@ class Admin::ResourcesController < Admin::BaseController
       check_resources_ownership
     end
     @resource = @resource.order(set_order(eager_loading)).includes(eager_loading)
-	
   end
 
   def fields
@@ -239,31 +238,47 @@ class Admin::ResourcesController < Admin::BaseController
 
   def set_order(assocs)
 	# modified to detect belongs_to associations, in which table_name is passed in params[:order_by]
-	# properly detects sti so you don't have to specify the name of the join table
+	# properly detects sti (not necessarily trivial)
 	# see app/helpers/admin/table_helper.rb#table_header
-	# similar modifications done in lib/typus/orm/active_record/class_methods.rb#typus_order_by
+	# lib/typus/orm/active_record/class_methods.rb#typus_order_by is still stupid
     params[:sort_order] ||= "desc"
-	if params[:order_by]
-	  if params[:order_by].to_s.include? "." # foreign attrib specified (relationship assumed)
-		order_by_array = params[:order_by].to_s.split(".")
-		unless @resource.reflect_on_association(order_by_array[0].to_sym).klass.descends_from_active_record? # STI check
-	      "#{order_by_array[0].pluralize}_#{@resource.table_name}.#{order_by_array[1]} #{params[:sort_order]}"
+	if params[:order_by] # if there is an order_by parameter...
+	  ord = params[:order_by].split(".")
+      if !assocs.include?(ord[0].to_sym) # if order_by param is not an association...
+		if @resource.new.attribute_names.include?(ord[0]) # ...but is a valid attribute of this model
+		  "#{@resource.table_name}.#{ord[0]} #{params[:sort_order]}" # (simplest possible case)
+	    else # if not...
+		  @resource.typus_order_by # ..this catches order_by of 'blah' (non-existent attribute)
+        end
+      else # if order_by param is an association...
+		rel = @resource.reflect_on_association(ord[0].to_sym).klass
+		rel_obj = rel.new # avoid creating a bunch of dummy instances; itself a necessary evil
+		# the following makes sure attrib of relationship to sort on exists
+		ord.size > 1 ? test = ord[1] : test = "name"
+		if rel_obj.attribute_names.include?(test) || test.eql?("id")
+		  sort_attrib = test 
+	    elsif rel_obj.attribute_names.include?("name")
+		  sort_attrib = "name"
 		else
-		  "#{order_by_array[0].pluralize}.#{order_by_array[1]} #{params[:sort_order]}"
+		  sort_attrib = "id"
 		end
-	  elsif assocs.include?(params[:order_by].to_sym) # no attrib specified (can be normal field or related field)
-	    unless @resource.reflect_on_association(params[:order_by].to_sym).klass.descends_from_active_record? # STI check
-	      "#{params[:order_by].pluralize}_#{@resource.table_name}.name #{params[:sort_order]}"	
-		else
-		  "#{params[:order_by].pluralize}.name #{params[:sort_order]}"
-		end		
-	  else # regular attribute
-	    "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}"
+		if !rel.descends_from_active_record? #STI check
+		  real_table = rel.superclass.table_name # get the real name of STI table
+		  if !assocs.include?(real_table.singularize.to_sym) # if STI assoc's parent is not associated with current model
+		    "#{real_table}.#{sort_attrib} #{params[:sort_order]}" # use its real table name
+		  elsif @resource.table_name < ord[0].pluralize # if not, use name of specific join table
+		    "#{@resource.table_name}_#{ord[0].pluralize}.#{sort_attrib} #{params[:sort_order]}"
+	      else # (convention is for join table names to be in alphabetical order)
+		    "#{ord[0].pluralize}_#{@resource.table_name}.#{sort_attrib} #{params[:sort_order]}"
+		  end
+		else #simplest possible case for an association
+		  "#{ord[0].pluralize}.#{sort_attrib} #{params[:sort_order]}"
+	    end
 	  end
-	else # no parameters at all
-	  @resource.typus_order_by
+	else # if there is no order_by parameter, hand off to typus_order_by
+      @resource.typus_order_by 
 	end
-	# the old way, for posterity. We do lose some simplicity here.
+	# the old way, for posterity. We do lose some simplicity here ;)
     # params[:order_by] ? "#{@resource.table_name}.#{params[:order_by]} #{params[:sort_order]}" : @resource.typus_order_by
   end
 

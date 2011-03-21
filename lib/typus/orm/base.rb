@@ -82,32 +82,64 @@ module Typus
       def typus_export_formats
         read_model_config['export'].try(:extract_settings) || []
       end
-
+	  
       def typus_order_by
         typus_defaults_for(:order_by).map do |field|
-		  if field.to_s.include? (".") # foreign attrib specified (relationship assumed)
-		    f = field.to_s.split (".")
-		    unless self.reflect_on_association(f[0].to_sym).klass.descends_from_active_record?
-		      field = "#{f[0].pluralize}_#{table_name}.#{f[1]}" 
-		    else
-		      field = "#{f[0].pluralize}.#{f[1]}" 
-		    end
-	        field.include? '-' ? "#{field.delete('-')} DESC" : "#{field} ASC"
-		  else # no attrib specified (can be normal field or related field)
-		    f = field.split('-')[0].to_sym
-		    if has_one_belongs_to_assocs.include?(f) # check for related field
-		      unless self.reflect_on_association(f).klass.descends_from_active_record? # check for STI
-			    field = "#{field.pluralize}_#{table_name}.name"
-			  else
-			    field = "#{field.pluralize}.name"
-			  end
-	          field.include?('-') ? "#{field.delete('-')} DESC" : "#{field} ASC"
-		    else
-              field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
-	        end
-		  end
+		  field << "_id" if has_one_belongs_to_assocs.include?(field.delete('-').to_sym)
+          field.include?('-') ? "#{table_name}.#{field.delete('-')} DESC" : "#{table_name}.#{field} ASC"
         end.join(', ')
       end
+
+      # def typus_order_by
+	    # assocs = has_one_belongs_to_assocs
+        # typus_defaults_for(:order_by).map do |field|
+		  # if !field.include?(".")
+		    # f = field.split("-")[0]
+		    # if assocs.include?(f.to_sym) # check for related field
+		      # rel = @resource.reflect_on_association(f).klass
+			  # if !rel.new.attribute_names.include?("name") # make sure 'name' attrib exists
+		        # field = "#{f}_id" 
+			  # elsif !rel.descends_from_active_record? # check for STI
+			    # real_table = rel.superclass.table_name
+			  	# if !assocs.include?(real_table.singularize.to_sym) # if STI's parent is not associated with current model
+			      # field = "#{real_table}" # use its' real table name
+				# elsif table_name < f.pluralize
+				  # field = "#{table_name}_#{f.pluralize}"
+				# else
+				  # field = "#{f.pluralize}_#{table_name}"
+				# end
+				# field = "#{field}.name"
+			  # else
+			    # field = "#{f.pluralize}.name"
+			  # end
+			# else
+			  # field = "#{f}"
+			# end
+			# f.size > 1 ? "#{field} DESC" : "#{field} ASC"
+	      # end
+		  # if field.include? (".") # foreign attrib specified (relationship assumed)
+		    # f = field.split(".")
+		    # unless self.reflect_on_association(f[0].to_sym).klass.descends_from_active_record? # check for STI
+		      # field = "#{f[0].pluralize}_#{table_name}.#{f[1]}" 
+		    # else
+		      # field = "#{f[0].pluralize}.#{f[1]}" 
+		    # end
+	        # field.include?("-") ? "#{field.delete('-')} DESC" : "#{field} ASC"
+		  # else # no attrib specified (can be normal field or related field)
+		    # f = field.split("-")[0].to_sym
+		    # if assocs.include?(f) # check for related field
+		      # unless self.reflect_on_association(f).klass.descends_from_active_record? # check for STI
+			    # field = "#{field.pluralize}_#{table_name}.name"
+			  # else
+			    # field = "#{field.pluralize}.name"
+			  # end
+	          # field.include?("-") ? "#{field.delete("-")} DESC" : "#{field} ASC"
+		    # else
+              # field.include?("-") ? "#{table_name}.#{field.delete("-")} DESC" : "#{table_name}.#{field} ASC"
+	        # end
+		  # end
+        # end.join(', ')
+      # end
 	  
 	def has_one_belongs_to_assocs
 	  assocs = self.reflect_on_all_associations(:belongs_to).reject { |i| i.options[:polymorphic] }.map { |i| i.name }
